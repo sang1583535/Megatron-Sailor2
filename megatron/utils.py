@@ -8,8 +8,13 @@ import sys
 import torch
 from torch.nn.parallel import DistributedDataParallel as torchDDP
 
-from apex.multi_tensor_apply import multi_tensor_applier
-import amp_C
+try:
+    from apex.multi_tensor_apply import multi_tensor_applier
+    import amp_C
+except ModuleNotFoundError:
+    # Apex is optional for utilities that do not rely on fused kernels.
+    multi_tensor_applier = None
+    amp_C = None
 
 from megatron import (
     get_args,
@@ -17,7 +22,6 @@ from megatron import (
 )
 from megatron.core import mpu
 from megatron.core.tensor_parallel import param_is_not_tensor_parallel_duplicate
-from megatron.model.module import param_is_not_shared
 
 
 def unwrap_model(model, module_instances=(torchDDP)):
@@ -37,6 +41,10 @@ def unwrap_model(model, module_instances=(torchDDP)):
 
 def calc_params_l2_norm(model):
     """Calculate l2 norm of parameters """
+    # Import lazily to keep preprocessing/tokenizer-only workflows from
+    # importing model/flash-attn dependencies at module import time.
+    from megatron.model.module import param_is_not_shared
+
     args = get_args()
     if not isinstance(model, list):
         model = [model]
@@ -51,14 +59,22 @@ def calc_params_l2_norm(model):
                     params_data.append(param.data.float())
                 else:
                     params_data.append(param.data)
-    # Calculate norm
-    dummy_overflow_buf = torch.cuda.IntTensor([0])
-    norm, _ = multi_tensor_applier(
-        amp_C.multi_tensor_l2norm,
-        dummy_overflow_buf,
-        [params_data],
-        False # no per-parameter norm
-    )
+    # Calculate norm. Use fused Apex kernel when available, otherwise a
+    # torch-native fallback to keep utility functions usable without Apex.
+    if multi_tensor_applier is not None and amp_C is not None:
+        dummy_overflow_buf = torch.cuda.IntTensor([0])
+        norm, _ = multi_tensor_applier(
+            amp_C.multi_tensor_l2norm,
+            dummy_overflow_buf,
+            [params_data],
+            False # no per-parameter norm
+        )
+    else:
+        if len(params_data) == 0:
+            norm = torch.tensor(0.0, device='cuda' if torch.cuda.is_available() else 'cpu')
+        else:
+            flat_params = torch.cat([p.view(-1) for p in params_data])
+            norm = torch.linalg.norm(flat_params, ord=2)
     norm_2 = norm * norm
     # Sum across all model-parallel GPUs.
     torch.distributed.all_reduce(norm_2,

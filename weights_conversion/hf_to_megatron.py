@@ -47,7 +47,6 @@ from tqdm.auto import trange
 from transformers import AutoModelForCausalLM, LlamaTokenizer, AutoTokenizer
 
 from utils.permute_qkv import permute_qkv, permute_qkv_bias
-from utils.merge_llama import merge_llama
 
 
 llama_s2layer = {7: 32, 13: 40, 30: 60, 34: 48, 65: 80, 70: 80}
@@ -401,6 +400,7 @@ def main(model_name: str = "falcon", size: int = 7, out: Optional[Path] = None,
         hf_weights = model.state_dict()
     else:
         print("Getting llama...")
+        from utils.merge_llama import merge_llama
         version = 2 if "2" in model_name else 1
         hf_weights, llama_source = merge_llama(size, version, root_dir=cache_dir,
                                                model_path=model_path)
@@ -466,7 +466,7 @@ def main(model_name: str = "falcon", size: int = 7, out: Optional[Path] = None,
             "parallel_attn": False, #no 
             "make_vocab_size_divisible_by": 128, #no
             "glu_activation": "swiglu",  # hf document
-            "padded_vocab_size": qwen_s2vocab[size], #config
+            "padded_vocab_size": megatron_weights["embedding"]["word_embeddings.weight"].shape[0], #actual
             "use_rms_norm": True, # hf document
             "tie_embed_logits": True if size in [5, 15] else False, #config
             "tokenizer_type": "Qwen2ChatTokenizer" if '_sft_' in output_path else "Qwen2Tokenizer", #no

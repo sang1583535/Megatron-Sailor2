@@ -65,6 +65,7 @@ def _load_checkpoint(queue, args):
     margs.world_size = margs.tensor_model_parallel_size * margs.pipeline_model_parallel_size
 
     margs = megatron.arguments.validate_args(margs)
+    margs.gradient_accumulation_fusion = False
 
     def check_for_arg(arg_name):
         if getattr(margs, arg_name, None) is None:
@@ -143,7 +144,10 @@ def _load_checkpoint(queue, args):
     mpu._DATA_PARALLEL_GROUP = 0
     mpu.set_tensor_model_parallel_world_size(margs.tensor_model_parallel_size)
     mpu.set_pipeline_model_parallel_world_size(margs.pipeline_model_parallel_size)
-    fused_kernels.load(margs)
+    try:
+        fused_kernels.load(margs)
+    except Exception as e:
+        print(f"Warning: fused kernel load failed ({e}). Continuing without fused kernels.")
 
     # Get true (non-padded) vocab size
     if args.true_vocab_size is not None:

@@ -1,7 +1,12 @@
 # Copyright (c) 2022, NVIDIA CORPORATION. All rights reserved.
 
-from apex.optimizers import FusedAdam as Adam
-from apex.optimizers import FusedSGD as SGD
+try:
+    from apex.optimizers import FusedAdam as Adam
+    from apex.optimizers import FusedSGD as SGD
+except ModuleNotFoundError:
+    # Conversion/checkpoint utilities do not require apex kernels.
+    from torch.optim import Adam
+    from torch.optim import SGD
 
 from megatron import get_args
 

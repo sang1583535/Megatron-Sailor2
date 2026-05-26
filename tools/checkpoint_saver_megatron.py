@@ -140,6 +140,7 @@ def save_checkpoint(queue, args):
 
     margs = megatron.arguments.parse_args()
     megatron.arguments.validate_args(margs)
+    margs.gradient_accumulation_fusion = False
     set_global_variables(margs)
     margs = get_args()
 
@@ -175,7 +176,10 @@ def save_checkpoint(queue, args):
     mpu.set_pipeline_model_parallel_world_size(args.target_pipeline_parallel_size)
     mpu.set_tensor_model_parallel_rank(0)
     mpu.set_pipeline_model_parallel_rank(0)
-    fused_kernels.load(margs)
+    try:
+        fused_kernels.load(margs)
+    except Exception as e:
+        print(f"Warning: fused kernel load failed ({e}). Continuing without fused kernels.")
 
     # Embeddings
     embeddings_msg = queue_get("embeddings")

@@ -454,9 +454,9 @@ def _load_base_checkpoint(load_dir, use_distributed_optimizer, rank0=False, spec
 
     # Load the checkpoint.
     try:
-        model_state_dict = torch.load(model_checkpoint_name, map_location='cpu')
+        model_state_dict = torch.load(model_checkpoint_name, map_location='cpu', weights_only=False)
         if use_distributed_optimizer:
-            optim_state_dict = torch.load(optim_checkpoint_name, map_location='cpu')
+            optim_state_dict = torch.load(optim_checkpoint_name, map_location='cpu', weights_only=False)
         else:
             optim_state_dict = model_state_dict
     except ModuleNotFoundError:
@@ -468,8 +468,8 @@ def _load_base_checkpoint(load_dir, use_distributed_optimizer, rank0=False, spec
             'megatron.fp16_deprecated.loss_scaler']
         sys.modules['megatron.fp16.loss_scaler'] = sys.modules[
             'megatron.fp16_deprecated.loss_scaler']
-        model_state_dict = torch.load(model_checkpoint_name, map_location='cpu')
-        optim_state_dict = torch.load(optim_checkpoint_name, map_location='cpu')
+        model_state_dict = torch.load(model_checkpoint_name, map_location='cpu', weights_only=False)
+        optim_state_dict = torch.load(optim_checkpoint_name, map_location='cpu', weights_only=False)
         sys.modules.pop('fp16.loss_scaler', None)
         sys.modules.pop('megatron.fp16.loss_scaler', None)
     except BaseException as e:
@@ -722,7 +722,7 @@ def load_biencoder_checkpoint(model,
         print('global rank {} is loading checkpoint {}'.format(
             torch.distributed.get_rank(), checkpoint_name))
 
-    state_dict = torch.load(model_checkpoint_name, map_location='cpu')
+    state_dict = torch.load(model_checkpoint_name, map_location='cpu', weights_only=False)
     ret_state_dict = state_dict['model']
 
     if only_query_model:

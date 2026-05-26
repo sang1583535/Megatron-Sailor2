@@ -5,8 +5,13 @@
 import math
 from abc import ABC
 from abc import abstractmethod
-from apex.multi_tensor_apply import multi_tensor_applier
-import amp_C
+try:
+    from apex.multi_tensor_apply import multi_tensor_applier
+    import amp_C
+except ModuleNotFoundError:
+    # Apex is optional; fall back to torch ops when unavailable.
+    multi_tensor_applier = None
+    amp_C = None
 import torch
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
@@ -42,7 +47,7 @@ def _multi_tensor_copy_this_to_that(this, that, overflow_buf=None):
     We don't have a blfoat16 implementation so for now if the overflow_buf
     is not provided, we default back to simple loop copy to be compatible
     with bfloat16."""
-    if overflow_buf:
+    if overflow_buf is not None and multi_tensor_applier is not None and amp_C is not None:
         overflow_buf.fill_(0)
         # Scaling with factor `1.0` is equivalent to copy.
         multi_tensor_applier(amp_C.multi_tensor_scale,

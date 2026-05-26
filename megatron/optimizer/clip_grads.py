@@ -6,8 +6,13 @@ import torch
 from torch import inf
 # from torch._six import inf
 
-from apex.multi_tensor_apply import multi_tensor_applier
-import amp_C
+try:
+    from apex.multi_tensor_apply import multi_tensor_applier
+    import amp_C
+except ModuleNotFoundError:
+    # Apex is optional; fall back to torch ops when unavailable.
+    multi_tensor_applier = None
+    amp_C = None
 
 from megatron.model.module import param_is_not_shared
 from megatron.core.tensor_parallel import param_is_not_tensor_parallel_duplicate
@@ -67,19 +72,28 @@ def clip_grad_norm_fp32(parameters, grads_for_norm,
 
     else:
         if norm_type == 2.0:
-            dummy_overflow_buf = torch.cuda.IntTensor([0])
-            # Use apex's multi-tensor applier for efficiency reasons.
-            # Multi-tensor applier takes a function and a list of list
-            # and performs the operation on that list all in one kernel.
-            if grads_for_norm:
-                grad_norm, _ = multi_tensor_applier(
-                    amp_C.multi_tensor_l2norm,
-                    dummy_overflow_buf,
-                    [grads_for_norm],
-                    False # no per-parameter norm
-                )
+            if multi_tensor_applier is not None and amp_C is not None:
+                dummy_overflow_buf = torch.cuda.IntTensor([0])
+                # Use apex's multi-tensor applier for efficiency reasons.
+                # Multi-tensor applier takes a function and a list of list
+                # and performs the operation on that list all in one kernel.
+                if grads_for_norm:
+                    grad_norm, _ = multi_tensor_applier(
+                        amp_C.multi_tensor_l2norm,
+                        dummy_overflow_buf,
+                        [grads_for_norm],
+                        False # no per-parameter norm
+                    )
+                else:
+                    grad_norm = torch.cuda.FloatTensor([0])
             else:
-                grad_norm = torch.cuda.FloatTensor([0])
+                # Apex-free fallback for global L2 norm.
+                if grads_for_norm:
+                    grad_norm = torch.sqrt(
+                        torch.stack([grad.float().pow(2).sum() for grad in grads_for_norm]).sum()
+                    )
+                else:
+                    grad_norm = torch.cuda.FloatTensor([0])
             # Since we will be summing across data parallel groups,
             # we need the pow(norm-type).
             total_norm = grad_norm ** norm_type
@@ -98,11 +112,15 @@ def clip_grad_norm_fp32(parameters, grads_for_norm,
     # Scale.
     clip_coeff = max_norm / (total_norm + 1.0e-6)
     if clip_coeff < 1.0:
-        dummy_overflow_buf = torch.cuda.IntTensor([0])
-        multi_tensor_applier(amp_C.multi_tensor_scale,
-                             dummy_overflow_buf,
-                             [grads, grads],
-                             clip_coeff)
+        if multi_tensor_applier is not None and amp_C is not None:
+            dummy_overflow_buf = torch.cuda.IntTensor([0])
+            multi_tensor_applier(amp_C.multi_tensor_scale,
+                                 dummy_overflow_buf,
+                                 [grads, grads],
+                                 clip_coeff)
+        else:
+            for grad in grads:
+                grad.mul_(clip_coeff)
 
     return total_norm
 

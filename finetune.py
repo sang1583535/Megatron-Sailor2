@@ -6,7 +6,6 @@ from functools import partial
 import torch
 
 from megatron import get_args, get_tokenizer, get_timers, get_counters, print_rank_0
-from megatron.training import pretrain
 from megatron.core import tensor_parallel
 from megatron.core.parallel_state import get_data_parallel_group
 from megatron.model import GPTModel, ModelType, LlamaModel, FalconModel, MistralModel, QwenModel, GemmaModel
@@ -261,6 +260,8 @@ def extra_args(parser):
 
 
 if __name__ == "__main__":
+    from megatron.training import pretrain
+
     args_defaults = {"tokenizer_type": "GPT2BPETokenizer"}
     initialize_megatron(extra_args, args_defaults)
     args = get_args()

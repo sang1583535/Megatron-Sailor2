@@ -6,9 +6,13 @@ from contextlib import nullcontext
 from typing import Callable
 
 import torch
-import flash_attn
 from torch.nn import functional as F
 from einops import rearrange
+
+try:
+    import flash_attn
+except Exception:
+    flash_attn = None
 
 from megatron import core, get_num_microbatches
 from .module import MegatronModule
@@ -23,7 +27,6 @@ from megatron.model.utils import attention_mask_func, erf_gelu
 # Extracted from: https://github.com/bigscience-workshop/Megatron-DeepSpeed
 from .glu_activations import GLU_ACTIVATIONS
 from megatron.model.positional_embeddings import precompute_freqs_cis, apply_rotary_emb
-from flash_attn.bert_padding import pad_input, unpad_input_for_concatenated_sequences
 
 """ We use the following notation throughout this file:
      h: hidden size
@@ -300,7 +303,9 @@ class ParallelAttention(MegatronModule):
         self.attn_mask_type = attn_mask_type
         self.params_dtype = args.params_dtype
         self.sequence_parallel = args.sequence_parallel
-        self.use_flash_attn = args.use_flash_attn
+        self.use_flash_attn = args.use_flash_attn and flash_attn is not None
+        if args.use_flash_attn and flash_attn is None:
+            print("flash_attn is not available. Falling back to standard attention.")
         self.sliding_window_size = args.sliding_window_size
         self.num_attention_heads_kv = args.num_attention_heads_kv
         self.num_attention_heads = args.num_attention_heads
@@ -373,6 +378,7 @@ class ParallelAttention(MegatronModule):
 
         self.intra_doc = args.intra_doc
         if self.intra_doc:
+            assert self.use_flash_attn, "intra_doc attention requires flash_attn."
             self.core_attention_flash = flash_attn.flash_attn_varlen_func
 
         # Output.
